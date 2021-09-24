@@ -49,8 +49,9 @@ class Statistics():
         words = self._words_statistics(stop_words)
         words = {k: v for k, v in sorted(words.items(), key=lambda item: item[1])}
         words_items = list(words.items())
+        words_items = words_items[-min(cnt,len(words_items)):]
         words_items.reverse()
-        return words_items[:min(cnt,len(words_items))]
+        return words_items
 
     def _words_statistics(self, stop_words=ONE_WORD_CONJUNCTIONS):
         word_statistics = {}
