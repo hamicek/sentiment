@@ -3,7 +3,9 @@ import unittest
 import tempfile
 import os
 from unittest.mock import Mock, patch
-from main import Product, Products, Statistics, DataLoader
+from models import Product
+from statistics import Statistics
+from data_loader import DataLoader
 
 
 class TestProduct(unittest.TestCase):
@@ -155,7 +157,7 @@ class TestDataLoader(unittest.TestCase):
     def test_products_property(self):
         """Test that products property returns the internal products list."""
         loader = DataLoader("test.csv")
-        self.assertIsInstance(loader.products, Products)
+        self.assertIsInstance(loader.products, list)
         self.assertEqual(len(loader.products), 0)
 
 
