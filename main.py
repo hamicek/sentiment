@@ -2,12 +2,22 @@ from flair.models import TextClassifier
 from flair.data import Sentence
 from operator import attrgetter
 from typing import List, Dict, Tuple, Optional
+import argparse
 import csv
+import logging
 import re
 import sys
 
 
 DATA_FILE_NAME = 'dataset-gymbeam-product-descriptions-eng.csv'
+
+# Configure logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 
 class Product:
@@ -29,10 +39,6 @@ class Product:
         self.tagged_string: str = ''
 
 
-class Products(list):
-    pass
-
-
 class Statistics:
     """Performs sentiment analysis and statistics on a collection of products.
 
@@ -52,11 +58,14 @@ class Statistics:
         Exits the program if the sentiment classifier cannot be loaded.
         """
         try:
+            logger.info("Loading sentiment classifier...")
             classifier = TextClassifier.load('en-sentiment')
+            logger.info("Sentiment classifier loaded successfully")
         except Exception as e:
-            print(f"Error: Failed to load sentiment classifier: {e}", file=sys.stderr)
+            logger.error(f"Failed to load sentiment classifier: {e}")
             sys.exit(1)
 
+        logger.info(f"Analyzing sentiment for {len(self.products)} products...")
         for p in self.products:
             try:
                 sentence = Sentence(p.description)
@@ -66,10 +75,11 @@ class Statistics:
                 p.confidence = rating['labels'][0]['confidence']
                 p.tagged_string = sentence.to_tagged_string()
             except Exception as e:
-                print(f"Warning: Failed to analyze sentiment for '{p.name}': {e}", file=sys.stderr)
+                logger.warning(f"Failed to analyze sentiment for '{p.name}': {e}")
                 p.sentiment_value = 'UNKNOWN'
                 p.confidence = 0.0
                 p.tagged_string = p.description
+        logger.info("Sentiment analysis completed")
 
     def most_positive(self) -> Optional[Product]:
         """Finds the product with the highest positive sentiment confidence.
@@ -136,10 +146,11 @@ class DataLoader:
         file_name: Path to the CSV file to load
         _products: Internal list of loaded Product objects
     """
+    HTML_TAG_PATTERN = re.compile('<.*?>')
 
     def __init__(self, file_name: str) -> None:
         self.file_name: str = file_name
-        self._products: Products = Products()
+        self._products: List[Product] = []
 
     def load(self) -> None:
         """Loads products from the CSV file.
@@ -150,6 +161,7 @@ class DataLoader:
         Raises:
             SystemExit: If the file is not found, permission is denied, or another error occurs.
         """
+        logger.info(f"Loading products from '{self.file_name}'...")
         try:
             with open(self.file_name, encoding='utf-8') as csv_file:
                 csv_reader = csv.reader(csv_file, delimiter=',')
@@ -159,19 +171,20 @@ class DataLoader:
                         product = self._map_to_products(row)
                         self._products.append(product)
                     except ValueError as e:
-                        print(f"Warning: Skipping row {row_num} due to error: {e}", file=sys.stderr)
+                        logger.warning(f"Skipping row {row_num} due to error: {e}")
                         continue
+            logger.info(f"Successfully loaded {len(self._products)} products")
         except FileNotFoundError:
-            print(f"Error: File '{self.file_name}' not found.", file=sys.stderr)
+            logger.error(f"File '{self.file_name}' not found")
             sys.exit(1)
         except PermissionError:
-            print(f"Error: Permission denied reading file '{self.file_name}'.", file=sys.stderr)
+            logger.error(f"Permission denied reading file '{self.file_name}'")
             sys.exit(1)
         except Exception as e:
-            print(f"Error: Unexpected error while reading file: {e}", file=sys.stderr)
+            logger.error(f"Unexpected error while reading file: {e}")
             sys.exit(1)
 
-    def _get_products(self) -> Products:
+    def _get_products(self) -> List[Product]:
         """Returns the list of loaded products."""
         return self._products
 
@@ -190,8 +203,7 @@ class DataLoader:
         if len(row) != 2:
             raise ValueError(f"Expected 2 columns, got {len(row)}")
         product, description = row
-        cleanr = re.compile('<.*?>')
-        description = re.sub(cleanr, '', description)
+        description = re.sub(self.HTML_TAG_PATTERN, '', description)
         return Product(product, description)
 
     products = property(_get_products)
@@ -208,33 +220,99 @@ def print_product(product: Product) -> None:
     print(product.confidence)
 
 
-if __name__ == "__main__":
-    data_loader = DataLoader(DATA_FILE_NAME)
+def parse_arguments() -> argparse.Namespace:
+    """Parses command-line arguments.
+
+    Returns:
+        Parsed command-line arguments.
+    """
+    parser = argparse.ArgumentParser(
+        description='Sentiment analysis tool for product descriptions',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py
+  python main.py --file my_products.csv
+  python main.py --file products.csv --words 20
+  python main.py --verbose
+        """
+    )
+    parser.add_argument(
+        '--file', '-f',
+        type=str,
+        default=DATA_FILE_NAME,
+        help=f'Path to the CSV file with product data (default: {DATA_FILE_NAME})'
+    )
+    parser.add_argument(
+        '--words', '-w',
+        type=int,
+        default=10,
+        help='Number of most used words to display (default: 10)'
+    )
+    parser.add_argument(
+        '--verbose', '-v',
+        action='store_true',
+        help='Enable verbose logging (DEBUG level)'
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    """Main function to run sentiment analysis."""
+    args = parse_arguments()
+
+    # Configure logging level based on verbosity
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Verbose mode enabled")
+
+    logger.info("Starting sentiment analysis tool")
+
+    # Load data
+    data_loader = DataLoader(args.file)
     data_loader.load()
 
     if not data_loader.products:
-        print("Error: No products loaded from file.", file=sys.stderr)
+        logger.error("No products loaded from file")
         sys.exit(1)
 
+    # Compute sentiment
     statistics = Statistics(data_loader.products)
     statistics.compute_sentiment()
+
+    # Display results
+    print("\n" + "="*60)
+    print("SENTIMENT ANALYSIS RESULTS")
+    print("="*60 + "\n")
 
     max_positive = statistics.most_positive()
     max_negative = statistics.most_negative()
 
-    print('max positive:')
+    print('Most Positive Product:')
+    print('-' * 40)
     if max_positive:
         print_product(max_positive)
     else:
         print('No positive products found')
-    print()
-    print('max negative:')
+
+    print('\n' + '-' * 40)
+    print('Most Negative Product:')
+    print('-' * 40)
     if max_negative:
         print_product(max_negative)
     else:
         print('No negative products found')
-    print()
-    print('Most used words:')
-    words = statistics.most_used_words()
-    for w in words:
-        print(' - %s - %s' % (w[0], w[1]))
+
+    print('\n' + '-' * 40)
+    print(f'Top {args.words} Most Used Words:')
+    print('-' * 40)
+    words = statistics.most_used_words(cnt=args.words)
+    for i, (word, count) in enumerate(words, 1):
+        print(f'{i:2d}. {word:20s} - {count} occurrences')
+
+    print("\n" + "="*60)
+    logger.info("Analysis complete")
+
+
+if __name__ == "__main__":
+    main()
