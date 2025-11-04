@@ -3,6 +3,7 @@ from flair.data import Sentence
 from operator import attrgetter
 import csv
 import re
+import sys
 
 
 DATA_FILE_NAME = 'dataset-gymbeam-product-descriptions-eng.csv'
@@ -28,22 +29,37 @@ class Statistics():
         self.products = products
 
     def compute_sentiment(self):
-        classifier = TextClassifier.load('en-sentiment')
+        try:
+            classifier = TextClassifier.load('en-sentiment')
+        except Exception as e:
+            print(f"Error: Failed to load sentiment classifier: {e}", file=sys.stderr)
+            sys.exit(1)
+
         for p in self.products:
-            sentence = Sentence(p.description)
-            classifier.predict(sentence)
-            rating = sentence.to_dict()
-            p.sentiment_value = rating['labels'][0]['value']
-            p.confidence = rating['labels'][0]['confidence']
-            p.tagged_string = sentence.to_tagged_string()
+            try:
+                sentence = Sentence(p.description)
+                classifier.predict(sentence)
+                rating = sentence.to_dict()
+                p.sentiment_value = rating['labels'][0]['value']
+                p.confidence = rating['labels'][0]['confidence']
+                p.tagged_string = sentence.to_tagged_string()
+            except Exception as e:
+                print(f"Warning: Failed to analyze sentiment for '{p.name}': {e}", file=sys.stderr)
+                p.sentiment_value = 'UNKNOWN'
+                p.confidence = 0.0
+                p.tagged_string = p.description
 
     def most_positive(self):
-        return max([p for p in self.products if p.sentiment_value == 'POSITIVE'], 
-            key=attrgetter("confidence"))
+        positive_products = [p for p in self.products if p.sentiment_value == 'POSITIVE']
+        if not positive_products:
+            return None
+        return max(positive_products, key=attrgetter("confidence"))
 
     def most_negative(self):
-        return max([p for p in self.products if p.sentiment_value == 'NEGATIVE'], 
-            key=attrgetter("confidence"))
+        negative_products = [p for p in self.products if p.sentiment_value == 'NEGATIVE']
+        if not negative_products:
+            return None
+        return max(negative_products, key=attrgetter("confidence"))
 
     def most_used_words(self, cnt=10, stop_words=ONE_WORD_CONJUNCTIONS):
         words = self._words_statistics(stop_words)
@@ -58,10 +74,7 @@ class Statistics():
         for p in self.products:
             words = [w.lower() for w in p.tagged_string.split() if w.lower() not in stop_words]
             for w in words:
-                if not w in word_statistics:
-                    word_statistics[w] = words.count(w)
-                else:
-                    word_statistics[w] = word_statistics[w] + words.count(w)
+                word_statistics[w] = word_statistics.get(w, 0) + 1
         return word_statistics
 
 
@@ -71,16 +84,33 @@ class DataLoader():
         self._products = Products()
 
     def load(self):
-        with open(self.file_name) as csv_file:
-            csv_reader = csv.reader(csv_file, delimiter=',')
-            for row in csv_reader:
-                product = self._map_to_products(row)
-                self._products.append(product)
+        try:
+            with open(self.file_name, encoding='utf-8') as csv_file:
+                csv_reader = csv.reader(csv_file, delimiter=',')
+                next(csv_reader, None)  # Skip header row
+                for row_num, row in enumerate(csv_reader, start=2):
+                    try:
+                        product = self._map_to_products(row)
+                        self._products.append(product)
+                    except ValueError as e:
+                        print(f"Warning: Skipping row {row_num} due to error: {e}", file=sys.stderr)
+                        continue
+        except FileNotFoundError:
+            print(f"Error: File '{self.file_name}' not found.", file=sys.stderr)
+            sys.exit(1)
+        except PermissionError:
+            print(f"Error: Permission denied reading file '{self.file_name}'.", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error: Unexpected error while reading file: {e}", file=sys.stderr)
+            sys.exit(1)
 
     def _get_products(self):
         return self._products
 
     def _map_to_products(self, row):
+        if len(row) != 2:
+            raise ValueError(f"Expected 2 columns, got {len(row)}")
         product, description = row
         cleanr = re.compile('<.*?>')
         description = re.sub(cleanr, '', description)
@@ -101,6 +131,10 @@ if __name__ == "__main__":
     data_loader = DataLoader(DATA_FILE_NAME)
     data_loader.load()
 
+    if not data_loader.products:
+        print("Error: No products loaded from file.", file=sys.stderr)
+        sys.exit(1)
+
     statistics = Statistics(data_loader.products)
     statistics.compute_sentiment()
 
@@ -108,10 +142,16 @@ if __name__ == "__main__":
     max_negative = statistics.most_negative()
 
     print('max positive:')
-    print_product(max_positive)
+    if max_positive:
+        print_product(max_positive)
+    else:
+        print('No positive products found')
     print()
     print('max negative:')
-    print_product(max_negative)
+    if max_negative:
+        print_product(max_negative)
+    else:
+        print('No negative products found')
     print()
     print('Most used words:')
     words = statistics.most_used_words()
