@@ -3,7 +3,9 @@ import unittest
 import tempfile
 import os
 from unittest.mock import Mock, patch
-from main import Product, Statistics, DataLoader
+from models import Product
+from statistics import Statistics
+from data_loader import DataLoader
 
 
 class TestProduct(unittest.TestCase):

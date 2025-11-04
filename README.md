@@ -136,10 +136,29 @@ Top 10 Most Used Words:
 
 ## Project Structure
 
-- `main.py` - Main application code with sentiment analysis logic
-- `requirements.txt` - Python dependencies
-- `dataset-gymbeam-product-descriptions-eng.csv` - Sample dataset
-- `.gitignore` - Git ignore rules
+The project is organized into modular components for better maintainability:
+
+```
+sentiment/
+├── main.py                  # CLI entry point and main function
+├── models.py                # Data models (Product class)
+├── data_loader.py           # CSV file loading and parsing
+├── statistics.py            # Sentiment analysis and word statistics
+├── config.py                # Configuration constants
+├── test_main.py             # Unit tests
+├── requirements.txt         # Python dependencies
+├── dataset-gymbeam-product-descriptions-eng.csv  # Sample dataset
+├── .gitignore               # Git ignore rules
+└── README.md                # This file
+```
+
+**Module descriptions:**
+- `main.py` - Entry point with CLI argument parsing and result display
+- `models.py` - Product data model with sentiment attributes
+- `data_loader.py` - DataLoader class for reading CSV files
+- `statistics.py` - Statistics class for sentiment analysis and word frequency
+- `config.py` - Constants (default file paths, stop words)
+- `test_main.py` - Comprehensive unit tests for all modules
 
 ## Error Handling
 
